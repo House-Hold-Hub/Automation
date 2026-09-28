@@ -1,0 +1,52 @@
+name: Build service image
+
+on:
+  workflow_call:
+    inputs:
+      build_context:
+        description: Build context in the calling service repository.
+        required: false
+        type: string
+        default: .
+      dockerfile:
+        description: Path to the service-owned Dockerfile, relative to the calling repository.
+        required: false
+        type: string
+        default: Dockerfile
+      image_tag:
+        description: Local image tag used for build validation.
+        required: false
+        type: string
+        default: householdhub-service:ci
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build service-owned Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out calling service repository
+        uses: actions/checkout@v4
+
+      - name: Build service image
+        shell: bash
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$BUILD_CONTEXT" ]]; then
+            echo "::error::Build context not found: $BUILD_CONTEXT"
+            exit 1
+          fi
+          if [[ ! -f "$DOCKERFILE" ]]; then
+            echo "::error::Service-owned Dockerfile not found: $DOCKERFILE"
+            exit 1
+          fi
+          docker build \
+            --file "$DOCKERFILE" \
+            --tag "$IMAGE_TAG" \
+            "$BUILD_CONTEXT"
