@@ -1,6 +1,6 @@
 # Branch protection for shared quality gates
 
-The shared workflows in this repository become merge gates only when the consuming repository protects its target branch. The exact service test/check names stay owned by the service repository.
+The shared workflows in this repository can be selected as required merge checks when the consuming repository protects its target branch. Required status checks block merge when those check contexts fail or are missing, but they do **not** make repository-local workflow definitions immutable. A pull request that can edit its local CI workflow can potentially replace a reusable-workflow call with a different job that reports the same check context. The exact service test/check names stay owned by the service repository.
 
 ## Configure `main`
 
@@ -18,6 +18,12 @@ For each Backend or Frontend repository:
 6. Verify the rule with a pull request that intentionally fails a service test or one shared gate: merge must remain blocked until the failing check passes.
 
 If a service workflow renames or replaces a required check, update that repository's branch rule after the new check has run and is visible. The service workflow remains the source of the check name; this repository owns only the reusable gate implementation and this policy.
+
+## Workflow integrity
+
+Required status checks alone do not prove that the intended shared workflow definition ran. Protecting the gate definition itself requires an independently enforced control outside the pull request's editable workflow, for example an organization ruleset/required workflow or equivalent review protection for workflow-file changes.
+
+This repository documents that requirement but does not configure organization rulesets or cross-repository review enforcement as part of issue #2. Until an independent workflow-integrity control is enabled by repository/organization governance, required check contexts must not be described as making the shared gates tamper-proof.
 
 ## Scope
 
