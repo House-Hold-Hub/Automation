@@ -1,0 +1,33 @@
+name: Dependency security
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Review dependency changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require pull-request context
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "::error::Dependency security must be called from a pull_request workflow."
+            exit 1
+          fi
+
+      - name: Check out calling repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Review introduced dependency vulnerabilities
+        uses: actions/dependency-review-action@v5
+        with:
+          license-check: false
