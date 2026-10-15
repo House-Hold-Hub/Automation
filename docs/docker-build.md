@@ -31,10 +31,16 @@ permissions are `contents: read`.
 
 ## Versioning
 
-Callers reference the workflow by an immutable release tag, e.g.
-`@v1` (moving major tag) or `@v1.0.0`; pinning to a full commit SHA is the
-strictest option. Breaking input changes ship under a new major tag.
-Tags are cut from `main` by Automation maintainers after merge.
+Pick the reference that matches the guarantee you need:
+
+| Reference | Mutable? | Use |
+|---|---|---|
+| `@v1` | **Yes** - moving alias to the latest `v1.x.y` | Convenience; callers may receive new workflow code without changing their repository |
+| `@v1.0.0` | No, as long as tags are never retargeted | Pinned release version |
+| `@<full 40-char commit SHA>` | No - immutable | **Recommended** for maximum reproducibility and supply-chain safety |
+
+Breaking input changes ship under a new major tag. Tags are cut from `main`
+by Automation maintainers after merge.
 
 ## Validation
 
