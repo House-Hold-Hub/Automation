@@ -1,0 +1,22 @@
+# Example: place in a service repository as .github/workflows/docker-build.yml
+name: Docker build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Prefer a full commit SHA for reproducibility; @v1 is a moving alias. Never a branch.
+    uses: House-Hold-Hub/Automation/.github/workflows/docker-build.yml@v1
+    with:
+      dockerfile: Dockerfile        # service-owned
+      context: .                    # service-owned
+      image-name: backend
+      # target: runtime
+      # build-args: |
+      #   APP_ENV=ci
