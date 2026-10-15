@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    # Pin to a release tag (or a full commit SHA); never to a moving branch.
+    # Prefer a full commit SHA for reproducibility; @v1 is a moving alias. Never a branch.
     uses: House-Hold-Hub/Automation/.github/workflows/docker-build.yml@v1
     with:
       dockerfile: Dockerfile        # service-owned
