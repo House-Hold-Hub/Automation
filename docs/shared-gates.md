@@ -51,7 +51,7 @@ Copy [`examples/service-gates.yml`](../examples/service-gates.yml) to
 |---|---|---|---|
 | Backend | yes | `lockfiles: uv.lock` | no (contract drift already covered) |
 | Frontend | yes | `package-lock.json` (+ `tools/*/package-lock.json` if wanted) | no |
-| Documentation | yes | n/a (no lockfile) | yes; replaces its own `openapi-contract.yml`, see below |
+| Documentation | yes | n/a (no lockfile) | yes; replaced its own `openapi-contract.yml`, see below |
 | Infrastructure | yes | n/a until a lockfile exists | no |
 
 Reference the workflow by full commit SHA for reproducibility (`@v1` is a moving alias, see
@@ -59,10 +59,9 @@ Reference the workflow by full commit SHA for reproducibility (`@v1` is a moving
 to a workflow whose jobs you require: a required check skipped by a path filter stays pending and
 blocks every other pull request.
 
-Documentation's existing `openapi-contract.yml` already does what `openapi-validate.yml` does
-(same Redocly version and rules). The change that switches it to the reusable workflow and drops
-its `paths:` filter, so the check can become required, belongs to Documentation and is tracked
-there; this repository does not edit it.
+Documentation's former `openapi-contract.yml` did what `openapi-validate.yml` does (same Redocly
+version and rules). Documentation now calls the reusable workflow from its `gates.yml`, without
+the old `paths:` filters, so the check runs on every pull request and can be required.
 
 ## Required status check names
 
@@ -96,13 +95,17 @@ of a default branch without touching anything else, and binds each check to GitH
 another app is rebound. It is a dry run unless `--apply` is given, and re-running it is a no-op.
 It creates protection only after GitHub answered 404 "Branch not protected"; any other API error
 aborts without changes. It refuses repositories protected by a ruleset.
-`tests/scripts/set-required-checks.test.sh` (CI job `Test set-required-checks script`, not a
-required check) covers these cases against a stubbed `gh`.
+`tests/scripts/set-required-checks.test.sh` (CI job `Test set-required-checks script`, a required
+check in Automation) covers these cases against a stubbed `gh`.
 
 ```bash
 scripts/set-required-checks.sh House-Hold-Hub/Automation --apply \
-  "actionlint" "Smoke test reusable docker-build / build" "Secret scan / scan" "Gate self-tests"
+  "actionlint" "Smoke test reusable docker-build / build" "Secret scan / scan" \
+  "Gate self-tests" "Test set-required-checks script"
 ```
+
+Documentation is protected by a ruleset ("Protect main"), which the script refuses to edit: its
+required checks are managed in the ruleset itself.
 
 Baseline for a repository without protection (the one Frontend already uses): pull request
 required with 0 approvals, required checks, enforced for administrators, no force-push, no
@@ -111,25 +114,29 @@ coverage is imposed by this issue.
 
 ### State found and applied
 
-Checked on 2026-10-16. "Adopted" means the consumer's `gates.yml` is on its `main`, calls the
-shared workflows at Automation commit `5eeae49dfbef5c30fadb4d2ab8a83db068c01488`, and the
-published check names are required by branch protection.
+Final state, read from GitHub on 2026-10-16. Every consumer's `gates.yml` is on its `main` and
+calls the shared workflows at Automation commit `5eeae49dfbef5c30fadb4d2ab8a83db068c01488`. The
+check names below are those GitHub publishes, and all of them are green on each repository's `main`.
 
-| Repository | Before | After |
+| Repository | Adoption | Required on `main` |
 |---|---|---|
-| Automation | None | Required: `actionlint`, `Smoke test reusable docker-build / build`, `Secret scan / scan`, `Gate self-tests`, `Test set-required-checks script` |
-| Backend | None | **Adopted** ([Backend#44](https://github.com/House-Hold-Hub/Backend/pull/44)). Required: `Lint`, `Type check`, `Test`, `Contract drift`, `Secret scan / scan`, `Dependency security / scan` (`uv.lock`) |
-| Frontend | Required `lint`, `typecheck`, `test`, `build`, `contract-drift`; admins enforced | **Adopted** ([Frontend#30](https://github.com/House-Hold-Hub/Frontend/pull/30)). The same five, preserved, plus `Secret scan / scan` and `Dependency security / scan` (`package-lock.json`, `tools/lint/package-lock.json`) |
-| Documentation | Ruleset "Protect main": PR required, no force-push or deletion, no required checks | Adoption in progress: secret scan plus `openapi-validate.yml` without `paths:` filters, so the OpenAPI check can be required. The ruleset is preserved and extended, not replaced |
-| Infrastructure | None | Adoption in progress: secret scan only. It has no lockfile, OpenAPI document or other workflow, so nothing else is required |
+| Automation | Own secret scan and self-tests ([#6](https://github.com/House-Hold-Hub/Automation/pull/6)) | `actionlint`, `Smoke test reusable docker-build / build`, `Secret scan / scan`, `Gate self-tests`, `Test set-required-checks script` |
+| Backend | Secret scan and dependency security on `uv.lock` ([#44](https://github.com/House-Hold-Hub/Backend/pull/44)) | `Lint`, `Type check`, `Test`, `Contract drift`, `Secret scan / scan`, `Dependency security / scan` |
+| Frontend | Secret scan and dependency security on `package-lock.json` and `tools/lint/package-lock.json` ([#30](https://github.com/House-Hold-Hub/Frontend/pull/30)) | `lint`, `typecheck`, `test`, `build`, `contract-drift` (preserved) plus `Secret scan / scan`, `Dependency security / scan` |
+| Documentation | Secret scan and OpenAPI validation without path filters ([#6](https://github.com/House-Hold-Hub/Documentation/pull/6)); one historical Gitleaks exclusion ([#12](https://github.com/House-Hold-Hub/Documentation/pull/12)) | Ruleset "Protect main" (PR required, no deletion or force-push, existing rules preserved) with `Secret scan / scan` and `OpenAPI / validate` |
+| Infrastructure | Secret scan only ([#6](https://github.com/House-Hold-Hub/Infrastructure/pull/6)); no lockfile, OpenAPI document or other workflow exists | `Secret scan / scan`; PR required, admins enforced, no force-push or deletion |
 
-Backend and Frontend keep their own lint, type-check, test, build and contract-drift jobs; none is
-duplicated by the shared gates. Neither adopts `openapi-validate.yml`, because Documentation owns
-and validates the specification.
+All required checks are bound to GitHub Actions (`app_id` 15368). Backend and Frontend keep their
+own lint, type-check, test, build and contract-drift jobs; none is duplicated by the shared gates,
+and neither adopts `openapi-validate.yml`, because Documentation owns and validates the
+specification. Backend's `ci.yml` runs on pull requests only, so its `Lint`, `Type check` and `Test`
+checks do not appear on `main` itself.
 
-For the remaining repositories, add the published names (`Secret scan / scan`, and the OpenAPI
-check name published by Documentation) to their protection with the script above only after a
-pull request has run them; a check that no workflow publishes must not be required.
+Before adoption Automation, Backend and Infrastructure had no protection, Frontend already
+required its five checks, and Documentation's ruleset required none.
+
+A check that no workflow publishes must not be required: confirm the name from a pull-request run
+before adding it.
 
 ## Verification
 
@@ -157,10 +164,13 @@ pull request has run them; a check that no workflow publishes must not be requir
   lockfile; install scripts are disabled.
 - **Action SHAs are not auto-updated.** Nothing here configures Dependabot version updates; pinned
   SHAs and image digests must be refreshed by hand.
-- **Documentation and Infrastructure are not adopted yet** (see the table). Their protection
-  contains only checks that exist today. Changing a ruleset or branch protection needs repository
-  administration rights; where GitHub or the tooling denies it, the change is left to an
-  administrator rather than worked around.
+- **One historical exclusion exists.** Documentation's `.gitleaksignore` suppresses a single
+  Gitleaks fingerprint, a prose line about password hashing in an archived planning document (commit
+  `3006cae`, rule `generic-api-key`). It is a false positive on the full-history scan of `main`; the
+  file, the commit and every other rule stay scanned. No other repository has an exclusion.
+- **Protection changes need repository administration rights** and were applied only after the
+  published check names were confirmed. Where GitHub or the tooling denies a change, it is left to
+  an administrator rather than worked around.
 - **Newly required checks apply to existing branches.** A branch cut before a consumer adopted
   `gates.yml` has no `Secret scan / scan` run and stays blocked until it is updated from `main`.
 - Administrators are not exempt in Automation's protection (`enforce_admins`), like Frontend.
