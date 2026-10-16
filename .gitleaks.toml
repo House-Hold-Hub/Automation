@@ -1,0 +1,7 @@
+title = "negative proof"
+
+[[rules]]
+id = "proof"
+description = "proof"
+regex = '''HHH-FIXTURE-MARKER-[A-Z0-9]{16}'''
+keywords = ["hhh-fixture-marker"]
