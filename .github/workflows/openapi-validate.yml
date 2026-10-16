@@ -1,0 +1,89 @@
+name: OpenAPI validation (reusable)
+
+# Shared contract-validation logic (ADR-014). The OpenAPI specification stays owned by
+# Documentation; this workflow only validates a specification found in the caller's checkout.
+# Producer/consumer drift checks stay in Backend and Frontend and are not duplicated here.
+# It reads the repository, never writes to it, and needs no secrets.
+
+on:
+  workflow_call:
+    inputs:
+      spec-path:
+        description: Path to the OpenAPI document, relative to the repository root.
+        type: string
+        default: api/openapi.yaml
+      config-path:
+        description: Redocly configuration, relative to the repository root. Empty uses the built-in recommended ruleset.
+        type: string
+        default: redocly.yaml
+      redocly-version:
+        description: Exact @redocly/cli version (no ranges).
+        type: string
+        default: 2.54.3
+      node-version:
+        description: Node.js version used to run Redocly.
+        type: string
+        default: "24"
+      ref:
+        description: Git ref to validate. Defaults to the ref that triggered the caller.
+        type: string
+        default: ""
+      report-only:
+        description: Report the result through the `outcome` output without failing the job. For adoption and self-tests only; a blocking gate leaves this false.
+        type: boolean
+        default: false
+      runs-on:
+        description: Runner label.
+        type: string
+        default: ubuntu-latest
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 10
+    outputs:
+      outcome:
+        description: success or failure of the validation (meaningful with report-only).
+        value: ${{ jobs.validate.outputs.outcome }}
+
+permissions: {}
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    outputs:
+      outcome: ${{ steps.validate.outcome }}
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+
+      - name: Validate syntax, references and contract rules
+        id: validate
+        continue-on-error: ${{ inputs.report-only }}
+        env:
+          SPEC: ${{ inputs.spec-path }}
+          CONFIG: ${{ inputs.config-path }}
+          REDOCLY_VERSION: ${{ inputs.redocly-version }}
+          # Never run install scripts of the CLI's dependency tree.
+          npm_config_ignore_scripts: "true"
+        run: |
+          set -euo pipefail
+          redocly=(npx --yes "@redocly/cli@${REDOCLY_VERSION}")
+          lint_args=()
+          if [ -n "$CONFIG" ]; then
+            lint_args+=(--config "$CONFIG")
+          fi
+          "${redocly[@]}" bundle "$SPEC" --output "$RUNNER_TEMP/openapi-bundled.yaml"
+          "${redocly[@]}" lint "$SPEC" "${lint_args[@]}"

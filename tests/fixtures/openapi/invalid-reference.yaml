@@ -1,0 +1,30 @@
+# Negative fixture: the $ref below cannot be resolved.
+openapi: 3.1.0
+info:
+  title: Gate fixture (broken reference)
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://example.invalid
+security:
+  - sessionAuth: []
+paths:
+  /items:
+    get:
+      operationId: listItems
+      summary: List items
+      responses:
+        "200":
+          description: The items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoesNotExist"
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

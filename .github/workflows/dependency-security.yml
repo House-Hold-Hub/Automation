@@ -1,0 +1,81 @@
+name: Dependency security (reusable)
+
+# Shared dependency-vulnerability gate (testing-strategy.md, security-model.md). It scans the
+# lockfiles named by the caller against the OSV database and fails when any known vulnerability
+# is reported. It is a blocking CI check; it is separate from GitHub's native Dependabot alerts,
+# which are repository settings and cannot be made a required status check.
+# The scanner runs from an image pinned by digest. The repository is mounted read-only and no
+# token or secret is passed to the container.
+
+on:
+  workflow_call:
+    inputs:
+      lockfiles:
+        description: >-
+          Newline-separated lockfile paths relative to the repository root
+          (for example package-lock.json, uv.lock). At least one is required.
+        type: string
+        required: true
+      ref:
+        description: Git ref to scan. Defaults to the ref that triggered the caller.
+        type: string
+        default: ""
+      report-only:
+        description: Report the result through the `outcome` output without failing the job. For adoption and self-tests only; a blocking gate leaves this false.
+        type: boolean
+        default: false
+      runs-on:
+        description: Runner label.
+        type: string
+        default: ubuntu-latest
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 10
+    outputs:
+      outcome:
+        description: success or failure of the scan (meaningful with report-only).
+        value: ${{ jobs.scan.outputs.outcome }}
+
+permissions: {}
+
+jobs:
+  scan:
+    name: scan
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    outputs:
+      outcome: ${{ steps.osv.outcome }}
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Scan lockfiles with OSV-Scanner
+        id: osv
+        continue-on-error: ${{ inputs.report-only }}
+        env:
+          LOCKFILES: ${{ inputs.lockfiles }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -z "$line" ] && continue
+            if [ ! -f "$line" ]; then
+              echo "::error::Lockfile not found: $line"
+              exit 2
+            fi
+            args+=(--lockfile "$line")
+          done <<< "$LOCKFILES"
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "::error::The lockfiles input is empty; nothing would be scanned."
+            exit 2
+          fi
+          # osv-scanner v2.7.0. Exit 1 = vulnerabilities found, 128 = no packages found.
+          docker run --rm -v "$PWD:/src:ro" -w /src \
+            ghcr.io/google/osv-scanner@sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0 \
+            scan source "${args[@]}"

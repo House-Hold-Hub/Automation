@@ -1,0 +1,130 @@
+name: Shared gates
+
+# Automation's own use of the shared gates, plus their self-tests.
+#
+# - "Secret scan / scan" is the real blocking gate for this repository. Automation has no
+#   OpenAPI document and no dependency lockfile, so those two gates are exercised only against
+#   the fixtures in tests/fixtures.
+# - Negative cases call the reusable workflows with report-only: the job succeeds and exposes the
+#   scan result as `outcome`, which "Gate self-tests" asserts is `failure`. A gate that stops
+#   detecting its fixture turns "Gate self-tests" red.
+# Job names are the required status-check contexts; see docs/shared-gates.md before renaming.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret scan
+    uses: ./.github/workflows/secret-scan.yml
+
+  openapi-valid:
+    name: Self-test OpenAPI valid
+    uses: ./.github/workflows/openapi-validate.yml
+    with:
+      spec-path: tests/fixtures/openapi/valid.yaml
+      config-path: ""
+
+  openapi-broken-reference:
+    name: Self-test OpenAPI broken reference
+    uses: ./.github/workflows/openapi-validate.yml
+    with:
+      spec-path: tests/fixtures/openapi/invalid-reference.yaml
+      config-path: ""
+      report-only: true
+
+  openapi-rule-violations:
+    name: Self-test OpenAPI rule violations
+    uses: ./.github/workflows/openapi-validate.yml
+    with:
+      spec-path: tests/fixtures/openapi/invalid-contract.yaml
+      config-path: ""
+      report-only: true
+
+  dependencies-clean:
+    name: Self-test dependencies clean
+    uses: ./.github/workflows/dependency-security.yml
+    with:
+      lockfiles: tests/fixtures/dependencies/clean-npm/package-lock.json
+
+  dependencies-vulnerable-npm:
+    name: Self-test dependencies vulnerable npm
+    uses: ./.github/workflows/dependency-security.yml
+    with:
+      lockfiles: tests/fixtures/dependencies/vulnerable-npm/package-lock.json
+      report-only: true
+
+  dependencies-vulnerable-python:
+    name: Self-test dependencies vulnerable python
+    uses: ./.github/workflows/dependency-security.yml
+    with:
+      lockfiles: tests/fixtures/dependencies/vulnerable-python/uv.lock
+      report-only: true
+
+  secrets-clean:
+    name: Self-test secrets clean
+    uses: ./.github/workflows/secret-scan.yml
+    with:
+      mode: tree
+      path: tests/fixtures/secret-scan/clean
+      config-path: tests/fixtures/secret-scan/gitleaks.toml
+
+  secrets-leaked:
+    name: Self-test secrets leaked
+    uses: ./.github/workflows/secret-scan.yml
+    with:
+      mode: tree
+      path: tests/fixtures/secret-scan/leaked
+      config-path: tests/fixtures/secret-scan/gitleaks.toml
+      report-only: true
+
+  selftest:
+    name: Gate self-tests
+    if: ${{ always() }}
+    needs:
+      - openapi-valid
+      - openapi-broken-reference
+      - openapi-rule-violations
+      - dependencies-clean
+      - dependencies-vulnerable-npm
+      - dependencies-vulnerable-python
+      - secrets-clean
+      - secrets-leaked
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - name: Assert positive cases pass and negative cases are detected
+        run: |
+          set -euo pipefail
+          status=0
+          check() { # name, expected scan outcome (the job itself must have succeeded)
+            local result outcome
+            result=$(jq -r --arg n "$1" '.[$n].result' <<< "$NEEDS")
+            outcome=$(jq -r --arg n "$1" '.[$n].outputs.outcome // ""' <<< "$NEEDS")
+            if [ "$result" = "success" ] && [ "$outcome" = "$2" ]; then
+              echo "ok    $1 (outcome='${outcome}')"
+            else
+              echo "FAIL  $1: result=$result outcome='${outcome}', expected outcome='$2'"
+              status=1
+            fi
+          }
+          check openapi-valid success
+          check openapi-broken-reference failure
+          check openapi-rule-violations failure
+          check dependencies-clean success
+          check dependencies-vulnerable-npm failure
+          check dependencies-vulnerable-python failure
+          check secrets-clean success
+          check secrets-leaked failure
+          exit "$status"

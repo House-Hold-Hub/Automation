@@ -1,0 +1,9 @@
+# Test-only rule so the self-tests never need a real-looking credential in the repository.
+# It matches the synthetic marker in leaked/config.txt, which the built-in rules ignore.
+title = "Automation gate self-test"
+
+[[rules]]
+id = "gate-fixture-marker"
+description = "Synthetic marker used by the secret-scan self-tests"
+regex = '''HHH-FIXTURE-MARKER-[A-Z0-9]{16}'''
+keywords = ["hhh-fixture-marker"]

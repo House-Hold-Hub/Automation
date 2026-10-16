@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  title: Gate fixture (valid)
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://example.invalid
+security:
+  - sessionAuth: []
+paths:
+  /items/{id}:
+    get:
+      operationId: getItem
+      summary: Get an item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "404":
+          description: Not found.
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+  schemas:
+    Item:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string

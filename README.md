@@ -6,3 +6,4 @@ Reusable automation and shared pipeline assets for HouseHoldHub
 ## Contents
 
 - [Reusable Docker build workflow](docs/docker-build.md)
+- [Shared gates: OpenAPI validation, dependency security, secret scanning, required checks](docs/shared-gates.md)
