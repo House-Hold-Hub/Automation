@@ -33,6 +33,9 @@ docker run --rm -v "$PWD:/repo:ro" -w /repo --entrypoint shellcheck \
 
 # Tests for scripts/set-required-checks.sh (required check `Test set-required-checks script`): stubbed gh, no network
 tests/scripts/set-required-checks.test.sh
+
+# Tests for scripts/setup-local.sh (CI job `Test setup-local script`, not a required check): stubbed git, docker, curl
+tests/scripts/setup-local.test.sh
 ```
 
 The gate self-tests run only in GitHub Actions (`gates.yml`). To reproduce one locally, run the
@@ -163,6 +166,18 @@ gh api repos/House-Hold-Hub/<repo>/commits/<sha>/check-runs -q '.check_runs[] | 
 
 Enabling GitHub-native security features, or a protection change that GitHub refuses, is left to an
 administrator, not worked around.
+
+## Local setup script
+
+`scripts/setup-local.sh` clones Infrastructure/Backend/Frontend as siblings, creates `Infrastructure/.env`
+from `.env.example` (only when absent, mode 600, generated secrets), runs `docker compose up -d --build`
+from Infrastructure's `compose.yaml` and verifies db, migrations, Backend and Frontend (exit codes 2-7,
+see README "Local setup"). It must stay non-destructive: no `down`, `rm`, `prune` or volume removal, no
+change to existing checkouts or `.env`, no secret in output (the tests assert this). It reads, never
+copies, Infrastructure's definitions, so a change to service names, healthchecks or the published port in
+`compose.yaml` needs a matching change in `service_ok`/`verify_stack`/`HHH_APP_URL`. `GIT`, `DOCKER`
+and `CURL` inject the stubs; a behaviour change needs a case in the test. Keep bash 3.2 compatibility.
+Real-stack check: `scripts/setup-local.sh --workspace <empty dir>`.
 
 ## Docs and git workflow
 
