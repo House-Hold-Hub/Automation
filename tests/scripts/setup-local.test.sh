@@ -40,7 +40,9 @@ cat > "$work/bin/docker" <<'STUB'
 echo "docker $*" >> "$STUB_LOG"
 case "$1" in
   info) [ -z "${STUB_DAEMON_DOWN:-}" ] ;;
-  volume) [ -z "${STUB_VOLUME:-}" ] || echo "$STUB_VOLUME" ;;
+  volume)
+    if [ -n "${STUB_VOLUME_FAIL:-}" ]; then echo "permission denied while trying to connect to the docker API" >&2; exit 1; fi
+    [ -z "${STUB_VOLUME:-}" ] || echo "$STUB_VOLUME" ;;
   compose)
     shift
     case "$1" in
@@ -55,16 +57,34 @@ case "$1" in
 esac
 STUB
 
+# curl stub. STUB_API_MODE selects who answers /api/v1/: backend (Django 404 with its security
+# headers, the real behaviour), spa (Frontend nginx SPA fallback, 200), nginx404 (Frontend nginx 404
+# page without Django headers), html404 (404 HTML that merely looks like Django but has no headers).
 cat > "$work/bin/curl" <<'STUB'
 #!/usr/bin/env bash
-out=; url=
+out=; hdr=; url=
 while [ "$#" -gt 0 ]; do
-  case $1 in -o) out=$2; shift ;; -w|--max-time) shift ;; -*) ;; *) url=$1 ;; esac
+  case $1 in -o) out=$2; shift ;; -D) hdr=$2; shift ;; -w|--max-time) shift ;; -*) ;; *) url=$1 ;; esac
   shift
 done
+echo "curl $url" >> "$STUB_LOG"
 case $url in
-  */api/v1/) printf '%s' "x" > "$out"; printf '%s' "${STUB_API_CODE:-404}" ;;
-  *) echo '<!doctype html><html></html>' > "$out"; printf '%s' "${STUB_FRONT_CODE:-200}" ;;
+  */api/v1/)
+    case "${STUB_API_MODE:-backend}" in
+      backend) printf 'HTTP/1.1 404 Not Found\r\nServer: nginx\r\nX-Frame-Options: DENY\r\nCross-Origin-Opener-Policy: same-origin\r\n\r\n' > "$hdr"
+               echo '<html><title>Page not found at /api/v1/</title></html>' > "$out"; code=404 ;;
+      spa)     printf 'HTTP/1.1 200 OK\r\nServer: nginx\r\n\r\n' > "$hdr"
+               echo '<!doctype html><html><body><div id="root"></div></body></html>' > "$out"; code=200 ;;
+      nginx404) printf 'HTTP/1.1 404 Not Found\r\nServer: nginx\r\n\r\n' > "$hdr"
+               echo '<html><head><title>404 Not Found</title></head></html>' > "$out"; code=404 ;;
+      html404) printf 'HTTP/1.1 404 Not Found\r\nServer: nginx\r\nContent-Type: text/html\r\n\r\n' > "$hdr"
+               echo '<html><title>Page not found at /api/v1/</title></html>' > "$out"; code=404 ;;
+      *) : > "$hdr"; : > "$out"; code=${STUB_API_CODE:-502} ;;
+    esac
+    printf '%s' "$code" ;;
+  *) printf 'HTTP/1.1 200 OK\r\n\r\n' > "$hdr"
+     echo '<!doctype html><html><body><div id="root"></div></body></html>' > "$out"
+     printf '%s' "${STUB_FRONT_CODE:-200}" ;;
 esac
 STUB
 chmod +x "$work/bin/"*
@@ -139,6 +159,18 @@ fresh; run env >/dev/null; rm "$ws/Infrastructure/.env"
 run env STUB_VOLUME=householdhub_pgdata
 expect "existing volume without .env exits 5 and writes no .env" "$([ "$code" -eq 5 ] && [ ! -e "$ws/Infrastructure/.env" ] && grep -q 'never deletes volumes' <<<"$out" && echo 0 || echo 1)"
 
+# 5b. docker volume ls fails: fail closed, no .env, nothing started.
+fresh; run env >/dev/null; rm "$ws/Infrastructure/.env"; : > "$work/log"
+run env STUB_VOLUME_FAIL=1
+expect "volume lookup error exits 3 with the Docker diagnostic" "$([ "$code" -eq 3 ] && grep -q 'permission denied while trying to connect' <<<"$out" && grep -q 'could not list Docker volumes' <<<"$out" && echo 0 || echo 1)"
+expect "volume lookup error creates no .env and starts nothing" "$([ -z "$(find "$ws/Infrastructure" -maxdepth 1 -name '.env*' ! -name .env.example)" ] && ! logged 'compose up' && echo 0 || echo 1)"
+fresh; run env >/dev/null; rm "$ws/Infrastructure/.env"
+run env STUB_VOLUME=
+expect "empty volume list (valid result) still creates .env" "$([ "$code" -eq 0 ] && [ -e "$ws/Infrastructure/.env" ] && echo 0 || echo 1)"
+fresh; run env >/dev/null
+run env STUB_VOLUME_FAIL=1
+expect "existing .env does not need the volume lookup" "$([ "$code" -eq 0 ] && echo 0 || echo 1)"
+
 # 6. Clone failure.
 fresh
 run env STUB_CLONE_FAIL=1
@@ -180,8 +212,16 @@ fresh
 run env STUB_BACKEND='running|unhealthy|0'
 expect "unhealthy Backend exits 7 and shows its logs" "$([ "$code" -eq 7 ] && grep -q 'FAIL  Backend is running and healthy' <<<"$out" && grep -q 'last log lines of backend' <<<"$out" && ! logged 'compose down' && echo 0 || echo 1)"
 fresh
-run env STUB_API_CODE=502
+run env STUB_API_MODE=bad STUB_API_CODE=502
 expect "proxy 502 on /api/v1/ exits 7" "$([ "$code" -eq 7 ] && grep -q 'FAIL  Backend reachable through the same origin' <<<"$out" && echo 0 || echo 1)"
+for mode in spa nginx404 html404; do
+  fresh
+  run env STUB_API_MODE=$mode
+  expect "/api/v1/ answered by the Frontend ($mode) is rejected with exit 7" "$([ "$code" -eq 7 ] && grep -q 'FAIL  Backend reachable through the same origin' <<<"$out" && grep -q 'answered by the Frontend itself' <<<"$out" && echo 0 || echo 1)"
+done
+fresh
+run env STUB_API_MODE=backend
+expect "genuine Django 404 through nginx is accepted" "$([ "$code" -eq 0 ] && grep -q 'ok    Backend reachable through the same origin' <<<"$out" && echo 0 || echo 1)"
 fresh
 run env STUB_FRONT_CODE=000
 expect "unreachable Frontend exits 7" "$([ "$code" -eq 7 ] && grep -q 'FAIL  Frontend serves the SPA' <<<"$out" && echo 0 || echo 1)"

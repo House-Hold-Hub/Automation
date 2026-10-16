@@ -26,7 +26,7 @@
 #                      published by compose.yaml).
 #   GIT, DOCKER, CURL  override the executables (the regression tests inject stubs).
 #
-# Exit codes: 0 ready; 2 usage; 3 missing prerequisite; 4 checkout problem; 5 invalid configuration;
+# Exit codes: 0 ready; 2 usage; 3 missing prerequisite or Docker unusable; 4 checkout problem; 5 invalid configuration;
 # 6 the stack failed to start; 7 the stack started but a service failed verification.
 #
 # Compatible with bash 3.2 (macOS /bin/bash): no mapfile, associative arrays or ${var,,}.
@@ -141,15 +141,30 @@ random_hex() { # bytes
   head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'
 }
 
+# Looks up the PostgreSQL volumes of the project into $volumes_out (called in the current shell, not
+# in a subshell, so the globals survive). A successful query with no result (status 0, empty
+# $volumes_out) means "no volume"; a failed query returns non-zero with its diagnostic in $volume_err,
+# so callers can tell the two apart and fail closed.
+volumes_out=
+volume_err=
 existing_volume() {
-  "$docker_bin" volume ls -q \
+  local errf rc=0
+  errf=$(mktemp) || return 1
+  volumes_out=$("$docker_bin" volume ls -q \
     --filter "label=com.docker.compose.project=$project" \
-    --filter "label=com.docker.compose.volume=pgdata" 2>/dev/null
+    --filter "label=com.docker.compose.volume=pgdata" 2>"$errf") || rc=$?
+  volume_err=$(cat "$errf")
+  rm -f "$errf"
+  return "$rc"
 }
 
 create_env() {
   local env=$infra/.env example=$infra/.env.example tmp
-  if [ -n "$(existing_volume)" ]; then
+  if ! existing_volume; then
+    printf '%s\n' "$volume_err" >&2
+    die 3 "could not list Docker volumes ('docker volume ls' failed, see above), so it is unknown whether a PostgreSQL volume of project '$project' already exists. No .env was created: a generated password could lock you out of an existing database. Fix Docker access and re-run."
+  fi
+  if [ -n "$volumes_out" ]; then
     die 5 "no $env, but a PostgreSQL volume of project '$project' already exists. A new random password would not match the one stored in that volume and the Backend could not log in. Restore your previous .env (cp it into Infrastructure/), or, if the data is disposable, remove the volume yourself with 'docker volume rm' (this script never deletes volumes)."
   fi
   say "creating Infrastructure/.env from .env.example with generated secrets"
@@ -250,7 +265,7 @@ status_of() { # service: "state|health|exitcode" from the current ps output
 }
 
 http_code() { # url -> status code, 000 when unreachable
-  "$curl_bin" -sS -o "$log_dir/body" -w '%{http_code}' --max-time 5 "$1" 2>/dev/null || true
+  "$curl_bin" -sS -o "$log_dir/body" -D "$log_dir/headers" -w '%{http_code}' --max-time 5 "$1" 2>/dev/null || true
 }
 
 failures=0
@@ -289,10 +304,17 @@ app_serves_frontend() {
   [ "$(http_code "$app_url/")" = 200 ] && grep -qi '<html' "$log_dir/body"
 }
 
-app_reaches_backend() { # the Backend publishes no health route: any answer below 500 proves the proxy and gunicorn are up
+# The Backend publishes no health route, so the answer itself must prove its origin. Behind a
+# working proxy /api/v1/ is Django's own response (404 until routes exist): it carries the security
+# headers Django's middleware adds and is not an HTML page of the SPA. If the proxy location is
+# missing, the Frontend's nginx answers instead: its SPA fallback (200 with the app shell) or its own
+# 404, neither of which has those headers.
+app_reaches_backend() {
   local code
   code=$(http_code "$app_url/api/v1/")
-  [ "$code" != 000 ] && [ "$code" -lt 500 ]
+  [ "$code" != 000 ] && [ "$code" -lt 500 ] || return 1
+  grep -qiE '^(cross-origin-opener-policy|x-frame-options):' "$log_dir/headers" || return 1
+  ! grep -q 'id="root"' "$log_dir/body"
 }
 
 migrations_applied() {
@@ -318,7 +340,7 @@ verify_stack() {
   check "Backend is running and healthy (healthcheck on /api/v1/)" "$rc" "see: docker compose logs backend (run in Infrastructure/)"
 
   set +e; wait_for app_reaches_backend; rc=$?; set -e
-  check "Backend reachable through the same origin: $app_url/api/v1/" "$rc" "the proxy answered 5xx or not at all; the Backend serves no health route, any status below 500 passes"
+  check "Backend reachable through the same origin: $app_url/api/v1/" "$rc" "no Django response came back through nginx: unreachable, 5xx, or answered by the Frontend itself (SPA page / nginx 404 without Django's security headers). Check Infrastructure/nginx/default.conf is mounted and proxies /api/ to backend:8000"
 
   set +e; wait_for service_healthy frontend; rc=$?; set -e
   check "Frontend container is running" "$rc" "see: docker compose logs frontend (run in Infrastructure/)"

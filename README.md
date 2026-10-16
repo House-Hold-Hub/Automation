@@ -33,12 +33,15 @@ bash 3.2 (macOS) is enough.
    `DJANGO_SECRET_KEY`, only when `.env` does not exist. An existing `.env` is validated (required
    variables present, `docker compose config` accepts it) and never modified. Secrets are never printed.
    If `.env` is missing but the `householdhub_pgdata` volume exists, it stops: a new password would not
-   match the one stored in the volume.
+   match the one stored in the volume. If `docker volume ls` itself fails, it stops too (exit 3) and creates no
+   `.env`; an empty result is the only thing treated as "no volume".
 3. Runs `docker compose up -d --build` in `Infrastructure/`.
 4. Verifies: PostgreSQL healthy; the `migrate` job exited 0 and `manage.py migrate --check` reports
-   nothing pending; the Backend healthcheck; `http://127.0.0.1:8080/api/v1/` answers below 500 through the
-   Frontend's proxy (the Backend has no health route; the API is still empty, so a 404 is expected); the
-   Frontend container is running and `http://127.0.0.1:8080/` serves the SPA.
+   nothing pending; the Backend healthcheck; `http://127.0.0.1:8080/api/v1/` returns a
+   response that demonstrably comes from Django through nginx (status below 500, Django's security headers
+   `X-Frame-Options` / `Cross-Origin-Opener-Policy`, and not the SPA shell): the Backend has no health route and the
+   API is still empty, so a Django 404 is the expected answer, while the Frontend's own SPA fallback or 404 is rejected;
+   the Frontend container is running and `http://127.0.0.1:8080/` serves the SPA.
 
 It never runs `down`, removes images or deletes volumes, so the PostgreSQL data survives every run. After
 a failure the stack is left running for inspection, with the logs of the failing services printed.
@@ -58,7 +61,7 @@ scripts/setup-local.sh [--workspace DIR] [--timeout SECONDS]
 |---|---|
 | 0 | Stack ready |
 | 2 | Usage error |
-| 3 | Missing prerequisite (git, curl, docker, Compose v2, running daemon) |
+| 3 | Missing prerequisite (git, curl, docker, Compose v2, running daemon), or Docker failed while looking up the PostgreSQL volume |
 | 4 | Clone failed, or a checkout is incomplete or not a git repository |
 | 5 | Invalid configuration (`.env`, Compose, worktree path, orphan database volume) |
 | 6 | `docker compose up` failed (build, port in use, migration failure) |
