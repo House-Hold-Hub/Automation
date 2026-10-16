@@ -6,7 +6,8 @@
 repository, never by Automation.
 
 Out of scope until D02 is resolved: registry login, push, deployment targets,
-provider-specific steps. Shared gates (Automation#2) are also not included.
+provider-specific steps. Shared test, contract and security gates are separate: see
+[shared gates](shared-gates.md).
 
 ## Usage
 

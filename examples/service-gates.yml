@@ -1,0 +1,36 @@
+# Example: place in a consuming repository as .github/workflows/gates.yml
+# Use only the gates that apply to the repository; see docs/shared-gates.md.
+name: Gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Secret scan: every repository. Scans the commits the pull request adds.
+  secret-scan:
+    name: Secret scan
+    # Prefer a full commit SHA; @v1 is a moving alias. Never a branch.
+    uses: House-Hold-Hub/Automation/.github/workflows/secret-scan.yml@v1
+
+  # Dependency security: repositories with lockfiles (Backend: uv.lock; Frontend: package-lock.json).
+  dependency-security:
+    name: Dependency security
+    uses: House-Hold-Hub/Automation/.github/workflows/dependency-security.yml@v1
+    with:
+      lockfiles: |
+        package-lock.json
+
+  # OpenAPI validation: the repository that owns the specification (Documentation).
+  # No path filter on purpose: a required check that is skipped by a path filter stays "pending"
+  # and blocks every pull request that does not touch those paths.
+  openapi:
+    name: OpenAPI
+    uses: House-Hold-Hub/Automation/.github/workflows/openapi-validate.yml@v1
+    with:
+      spec-path: api/openapi.yaml
+      config-path: redocly.yaml
