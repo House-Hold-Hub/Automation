@@ -92,8 +92,12 @@ removes the protection: update branch protection in the same change.
 
 [`scripts/set-required-checks.sh`](../scripts/set-required-checks.sh) extends the required checks
 of a default branch without touching anything else, and binds each check to GitHub Actions
-(`app_id` 15368) so another app cannot satisfy it. It is a dry run unless `--apply` is given. It
-refuses repositories protected by a ruleset.
+(`app_id` 15368) so another app cannot satisfy it; a requested check already present with no app or
+another app is rebound. It is a dry run unless `--apply` is given, and re-running it is a no-op.
+It creates protection only after GitHub answered 404 "Branch not protected"; any other API error
+aborts without changes. It refuses repositories protected by a ruleset.
+`tests/scripts/set-required-checks.test.sh` (CI job `Test set-required-checks script`, not a
+required check) covers these cases against a stubbed `gh`.
 
 ```bash
 scripts/set-required-checks.sh House-Hold-Hub/Automation --apply \
