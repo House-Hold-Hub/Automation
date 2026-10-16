@@ -116,7 +116,10 @@ coverage is imposed by this issue.
 
 Final state, read from GitHub on 2026-10-16. Every consumer's `gates.yml` is on its `main` and
 calls the shared workflows at Automation commit `5eeae49dfbef5c30fadb4d2ab8a83db068c01488`. The
-check names below are those GitHub publishes, and all of them are green on each repository's `main`.
+check names below are those GitHub publishes. On each `main` the checks that run there are green: every
+required check in Automation, Frontend, Documentation and Infrastructure, and in Backend `Contract
+drift`, `Secret scan / scan` and `Dependency security / scan`. Backend's `Lint`, `Type check` and
+`Test` run only on pull requests (see below), so they are required but not observed on `main`.
 
 | Repository | Adoption | Required on `main` |
 |---|---|---|
@@ -129,8 +132,10 @@ check names below are those GitHub publishes, and all of them are green on each 
 All required checks are bound to GitHub Actions (`app_id` 15368). Backend and Frontend keep their
 own lint, type-check, test, build and contract-drift jobs; none is duplicated by the shared gates,
 and neither adopts `openapi-validate.yml`, because Documentation owns and validates the
-specification. Backend's `ci.yml` runs on pull requests only, so its `Lint`, `Type check` and `Test`
-checks do not appear on `main` itself.
+specification. Backend's `ci.yml` has no `push` trigger, so
+`Lint`, `Type check` and `Test` are verified on pull requests only, never on `main` itself; the
+checks verified on Backend's `main` are `Contract drift`, `Secret scan / scan` and `Dependency
+security / scan`.
 
 Before adoption Automation, Backend and Infrastructure had no protection, Frontend already
 required its five checks, and Documentation's ruleset required none.
