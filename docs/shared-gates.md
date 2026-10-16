@@ -51,7 +51,7 @@ Copy [`examples/service-gates.yml`](../examples/service-gates.yml) to
 |---|---|---|---|
 | Backend | yes | `lockfiles: uv.lock` | no (contract drift already covered) |
 | Frontend | yes | `package-lock.json` (+ `tools/*/package-lock.json` if wanted) | no |
-| Documentation | yes | n/a (no lockfile) | yes; can replace its own `openapi-contract.yml`, see below |
+| Documentation | yes | n/a (no lockfile) | yes; replaces its own `openapi-contract.yml`, see below |
 | Infrastructure | yes | n/a until a lockfile exists | no |
 
 Reference the workflow by full commit SHA for reproducibility (`@v1` is a moving alias, see
@@ -60,9 +60,9 @@ to a workflow whose jobs you require: a required check skipped by a path filter 
 blocks every other pull request.
 
 Documentation's existing `openapi-contract.yml` already does what `openapi-validate.yml` does
-(same Redocly version and rules). It is deliberately left untouched here; switching it to the
-reusable workflow is a change in Documentation, and only worthwhile together with dropping its
-`paths:` filter so the check can become required.
+(same Redocly version and rules). The change that switches it to the reusable workflow and drops
+its `paths:` filter, so the check can become required, belongs to Documentation and is tracked
+there; this repository does not edit it.
 
 ## Required status check names
 
@@ -111,17 +111,25 @@ coverage is imposed by this issue.
 
 ### State found and applied
 
+Checked on 2026-10-16. "Adopted" means the consumer's `gates.yml` is on its `main`, calls the
+shared workflows at Automation commit `5eeae49dfbef5c30fadb4d2ab8a83db068c01488`, and the
+published check names are required by branch protection.
+
 | Repository | Before | After |
 |---|---|---|
-| Automation | None | Required: `actionlint`, `Smoke test reusable docker-build / build`, `Secret scan / scan`, `Gate self-tests` |
-| Backend | None | Required: `Lint`, `Type check`, `Test`, `Contract drift` (all published by `ci.yml` and `api-contract.yml` on main) |
-| Frontend | Required `lint`, `typecheck`, `test`, `build`, `contract-drift`; admins enforced | Unchanged: already correct and matches the published names |
-| Documentation | Ruleset "Protect main": PR required, no force-push or deletion, no required checks | Unchanged: `Validate OpenAPI` is path-filtered and cannot be required without blocking unrelated PRs |
-| Infrastructure | None | Unchanged: it has no workflows, so there is no check to require |
+| Automation | None | Required: `actionlint`, `Smoke test reusable docker-build / build`, `Secret scan / scan`, `Gate self-tests`, `Test set-required-checks script` |
+| Backend | None | **Adopted** ([Backend#44](https://github.com/House-Hold-Hub/Backend/pull/44)). Required: `Lint`, `Type check`, `Test`, `Contract drift`, `Secret scan / scan`, `Dependency security / scan` (`uv.lock`) |
+| Frontend | Required `lint`, `typecheck`, `test`, `build`, `contract-drift`; admins enforced | **Adopted** ([Frontend#30](https://github.com/House-Hold-Hub/Frontend/pull/30)). The same five, preserved, plus `Secret scan / scan` and `Dependency security / scan` (`package-lock.json`, `tools/lint/package-lock.json`) |
+| Documentation | Ruleset "Protect main": PR required, no force-push or deletion, no required checks | Adoption in progress: secret scan plus `openapi-validate.yml` without `paths:` filters, so the OpenAPI check can be required. The ruleset is preserved and extended, not replaced |
+| Infrastructure | None | Adoption in progress: secret scan only. It has no lockfile, OpenAPI document or other workflow, so nothing else is required |
 
-When Backend, Frontend or the others adopt the shared gates, add the published names
-(`Secret scan / scan`, `Dependency security / scan`) to their protection with the script above;
-a check that no workflow publishes must not be required.
+Backend and Frontend keep their own lint, type-check, test, build and contract-drift jobs; none is
+duplicated by the shared gates. Neither adopts `openapi-validate.yml`, because Documentation owns
+and validates the specification.
+
+For the remaining repositories, add the published names (`Secret scan / scan`, and the OpenAPI
+check name published by Documentation) to their protection with the script above only after a
+pull request has run them; a check that no workflow publishes must not be required.
 
 ## Verification
 
@@ -149,6 +157,10 @@ a check that no workflow publishes must not be required.
   lockfile; install scripts are disabled.
 - **Action SHAs are not auto-updated.** Nothing here configures Dependabot version updates; pinned
   SHAs and image digests must be refreshed by hand.
-- **Not yet adopted by Backend, Frontend, Documentation, Infrastructure.** Their required-check
-  lists contain only checks that exist today.
+- **Documentation and Infrastructure are not adopted yet** (see the table). Their protection
+  contains only checks that exist today. Changing a ruleset or branch protection needs repository
+  administration rights; where GitHub or the tooling denies it, the change is left to an
+  administrator rather than worked around.
+- **Newly required checks apply to existing branches.** A branch cut before a consumer adopted
+  `gates.yml` has no `Secret scan / scan` run and stays blocked until it is updated from `main`.
 - Administrators are not exempt in Automation's protection (`enforce_admins`), like Frontend.
